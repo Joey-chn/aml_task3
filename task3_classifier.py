@@ -11,7 +11,7 @@ from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.utils import class_weight
 from sklearn.preprocessing import StandardScaler
 import csv
-from biosppy.signals import ecg
+from biosppy.signals import ecg, tools
 import seaborn as sns
 import matplotlib.pyplot as plt
 
@@ -211,15 +211,45 @@ if __name__ == '__main__':
     #open files
     maxsize = 17813
 #    x_train, y_train, x_test = open_from_csv('X_train.csv', 'y_train.csv', 'X_test.csv')
-
+    sns.set()
     y_train = pandas.read_csv( 'y_train.csv',   index_col='id').values
     with open('X_train.csv', 'r') as f:
         reader = csv.reader(f)
         vals = list(reader)[1:]
     [i.pop(0) for i in vals]
+    cutoff = 2000
 
+    #TODO: try out which segmenters work best
+    #TODO: Try the Hilbert Transform!
 
-    #TODO: check if the spectral sigs differ across classes
+    for n_s in range(200,400) :
+        fig = plt.figure()
+        fig.add_subplot(1,2,1)
+        #valar = np.absolute(np.fft.rfft(np.asarray(vals[n_s], dtype = 'float64')))/len(vals[n_s])
+        valar = tools.analytic_signal(signal = np.asarray(vals[n_s], dtype = 'float64'), N = cutoff)
+        sns.lineplot(np.arange(0,cutoff), valar[0])
+
+        
+        rpeaks = ecg.christov_segmenter(signal = np.asarray(vals[n_s], dtype='float64'), sampling_rate = 300)
+
+        out = ecg.extract_heartbeats(signal = np.asarray(vals[n_s], dtype='float64'), rpeaks = rpeaks[0], sampling_rate = 300, before = 0.2, after = 0.4)
+
+        #out = ecg.ecg(signal=np.asarray(vals[n_s], dtype='float64'), sampling_rate=1000, show = False)
+        fig.add_subplot(1,2,2)
+        avg = np.mean(out[0], axis = 0)
+        STD = np.std(out[0], axis = 0)
+        sns.lineplot(np.linspace(-0.22, 0.4, avg.size), avg)
+        sns.lineplot(np.linspace(-0.22, 0.4,STD.size), STD)
+ 
+        fig.savefig('img/S_' + str(n_s) + '_C_'+ str(y_train[n_s][0]) + '.png', dpi=450)
+        fig.clf()
+        plt.close('all')
+        
+
+    #DONE: check if the spectral sigs differ across classes
+    #RESULT: significant differences between healthy & the two abnormal cases
+    #
+     
     """
     spectrals = np.zeros((4 ,maxsize))
     cspectrals = np.zeros((4,maxsize), dtype = np.cdouble)
@@ -240,7 +270,4 @@ if __name__ == '__main__':
         #sns.lineplot( np.arange(0,maxsize), spectrals[i])
     sns.lineplot(np.arange(0,maxsize), np.subtract(spectrals[1], spectrals[2]))
     plt.show()
-    """
-    
-    out = ecg.ecg(signal=np.asarray(vals[84], dtype='float64'), sampling_rate=300, show=True)
-    
+    """ 
