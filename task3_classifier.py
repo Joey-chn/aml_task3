@@ -1,5 +1,6 @@
 import pandas
 import numpy as np
+from numpy import savetxt, loadtxt
 from sklearn.impute import SimpleImputer
 from sklearn.ensemble import IsolationForest
 from sklearn.feature_selection import SelectKBest, f_classif
@@ -16,28 +17,11 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 
-def open_from_csv(X_train_file, y_train_file, X_predict_file) : 
-    # read from files
-    x_train   = pandas.read_csv(X_train_file,   index_col='id') # 1212*833
-    y_train   = pandas.read_csv(y_train_file,   index_col='id') # 1212*1
-    x_predict = pandas.read_csv(X_predict_file, index_col='id')
-    return x_train.values, y_train.values, x_predict.values
-
 def get_class_weights(y_train) :
     y_integers = np.argmax(np_utils.to_categorical(y_train), axis=1)
     class_weights = class_weight.compute_class_weight('balanced', np.unique(y_integers), y_integers)
     return dict(enumerate(class_weights))
     #return class_weights
-
-def feature_selection(X_train, y_train, x_predict, variables = 500):
-
-    # apply SelectKBest class to extract best features
-    selector = SelectKBest(score_func = f_classif, k=variables) 
-    x_train_selected = selector.fit_transform(x_train, y_train)
-    x_predict_selected = selector.transform(x_predict)
-    print(x_train_selected.shape)
-
-    return x_train_selected, x_predict_selected, selector
 
 
 def result_to_csv(predict_y):
@@ -48,226 +32,77 @@ def result_to_csv(predict_y):
     result.to_csv('predict_y.csv', index=False)
 
 
-def find_no_relevant_variables_CV(x_train, y_train, sample_weights, skip = False) :
-    if skip : #best result at 270
-        return 480
-    else :
-        basevar = 300
-        increment = 20
-        kfold = StratifiedKFold(n_splits=10, shuffle=True)
-        scores = np.zeros(10)
-        for train, test in kfold.split(x_train, y_train) :
-            for i in range(0,10) :
-                pca = PCA(n_components = basevar + i*increment)
-                x_train_selected = pca.fit_transform(x_train[train])
-                scores[i] += svcClassify(x_train_selected, y_train[train],
-                    pca.transform(x_train[test]), y_train[test], sample_weights,
-                    _C = .38)
-
-        result_num_var = pandas.DataFrame(scores.reshape(-1,1), columns = ['scores'])
-        result_num_var.to_csv('relevant_vars_score_' + str(basevar) + '_' + str(increment) + '.csv')
-
-        idx = int(np.where(scores == np.amax(scores))[0])
-        print('best estimate for number of relevant variables found at ', basevar + idx*increment)
-        return basevar + idx*increment
-
-def find_best_params_SVM(x_train, y_train, sample_weights, skip = False) :
-    if skip :
-        return 0.74 #found by CV: .72
-    Cbase = 0.72
-    Cstep = .01
-    steps = 10
-    kfold = StratifiedKFold(n_splits=10, shuffle=True)
-    scores = np.zeros(steps)
-    for train, test in kfold.split(x_train, y_train) :
-        for i in range(0,steps) :
-            scores[i] += svcClassify(x_train[train], y_train[train],
-                x_train[test], y_train[test], sample_weights,
-                kernel = 'rbf', _C = Cbase + i*Cstep, gamma = 'scale')
-
-    c_s = np.linspace(Cbase,Cbase + (steps-1)*Cstep,steps).reshape(-1,1)
-    result_num_var = pandas.DataFrame( np.concatenate((c_s, scores.reshape(-1,1)), 1), columns = ['C','scores'])
-    result_num_var.to_csv('svc_params_score_'+str(Cbase)+'C_' + str(Cstep)+'_10x.csv')
-
-    idx = int(np.where(scores == np.amax(scores))[0])
-    print('best estimate for C ', Cbase + idx*Cstep)
-    return Cbase + idx*Cstep
-
-def find_best_gamma_SVM(x_train, y_train, sample_weights, skip = False, c_ = .72) :
-    if skip :
-        return 0.0004 #best param found by CV: 0.0007
-    gbase = 0.0003
-    gstep = 0.0001
-    steps = 10
-    kfold = StratifiedKFold(n_splits=10, shuffle=True)
-    scores = np.zeros(steps)
-    for train, test in kfold.split(x_train, y_train) :
-        for i in range(0,steps) :
-            scores[i] += svcClassify(x_train[train], y_train[train],
-                x_train[test], y_train[test], sample_weights,
-                kernel = 'rbf', _C = c_, gamma = gbase + i*gstep)
-
-    c_s = np.linspace(gbase,gbase + (steps-1)*gstep,steps).reshape(-1,1)
-    result_num_var = pandas.DataFrame( np.concatenate((c_s, scores.reshape(-1,1)), 1), columns = ['C','scores'])
-    result_num_var.to_csv('svc_params_score_i'+str(gbase)+'gamma_' + str(gstep)+'_10x.csv')
-
-    idx = int(np.where(scores == np.amax(scores))[0])
-    print('best estimate for gamma ', gbase + idx*gstep)
-    return gbase + idx*gstep
-
-
-def find_best_params_RF(x_train, y_train, sample_weights, skip = False) :
-    if skip :
-        return 6
-    esbase = 4
-    esstep = 4
-    kfold = StratifiedKFold(n_splits=10, shuffle=True)
-    scores = np.zeros(10)
-    for train, test in kfold.split(x_train, y_train) :
-        for i in range(0,10) :
-            scores[i] += rfClassify(x_train[train], y_train[train],
-                x_train[test], y_train[test], sample_weights,
-                estimators = esbase + i*esstep)
-
-    result_num_var = pandas.DataFrame(scores.reshape(-1,1), columns = ['scores'])
-    result_num_var.to_csv('rf_params_score_04es_4.csv')
-
-    idx = int(np.where(scores == np.amax(scores))[0])
-    print('best estimate for no of estimators ', esbase + esstep*idx)
-    return  esbase + esstep*idx
-
-def find_best_params_NN(x_train, y_train, sample_weights, skip = False) :
-    if skip :
-        return 1024
-    sizebase = 64*8
-    increment = 264    
-
-    kfold = StratifiedKFold(n_splits=5, shuffle=True)
-    scores = np.zeros(5)
-    for train, test in kfold.split(x_train, y_train) :
-        for i in range(0,5) :
-            scores[i] += simpleClassify(x_train[train], y_train[train],
-                x_train[test], y_train[test], sample_weights,
-                neurons = sizebase + i*increment)
-
-    result_num_var = pandas.DataFrame(scores.reshape(-1,1), columns = ['scores'])
-    result_num_var.to_csv('NN_params_score_512n_264_pca.csv')
-
-    idx = int(np.where(scores == np.amax(scores))[0])
-    print('best estimate for no of estimators ', sizebase + idx*increment)
-    return sizebase + idx*increment
-
-def model_choice_cv(x_train, y_train, sample_weights, skip = False) :
-    if skip :
-        return 'NN'
-    model_list = ['SVM', 'RF', 'SVMS', 'GP']
-    kfold = StratifiedKFold(n_splits=10, shuffle=True)
-    scores = np.zeros(4)
-    for train, test in kfold.split(x_train, y_train) :
-        scores[0] += svmClassify(x_train[train], y_train[train],
-            x_train[test], y_train[test], sample_weights,
-            kernel = 'rbf', nu = 0.06)
-        scores[1] += rfClassify(x_train[train], y_train[train],
-            x_train[test], y_train[test], sample_weights,
-            estimators = 6)
-        scores[2] += simpleClassify(x_train[train], y_train[train],
-            x_train[test], y_train[test], sample_weights)
-        scores[3] += svmClassify(x_train[train], y_train[train],
-            x_train[test], y_train[test], sample_weights,
-            kernel = 'linear', nu = 0.06)
-#        scores[3] += bgmClassify(x_train[train], y_train[train],
-#            x_train[test], y_train[test])
     
-    result_num_var = pandas.DataFrame(scores.reshape(-1,1), columns = ['scores'])
-    result_num_var.to_csv('models_scores.csv')
-    idx = int(np.where(scores == np.amax(scores))[0])
-    print('best performing model was a ', model_list[idx])
-    return model_list[idx]
+def read_data(x_trainame, y_trainame, x_testname) :
+    y_train = pandas.read_csv( 'y_train.csv',   index_col='id').values
+    with open(x_trainame, 'r') as f:
+        reader = csv.reader(f)
+        tr_vals = list(reader)[1:]
+    [i.pop(0) for i in tr_vals]
+    with open(x_testname, 'r') as f:
+        reader = csv.reader(f)
+        te_vals = list(reader)[1:]
+    [i.pop(0) for i in te_vals]
+    return tr_vals, y_train, te_vals
 
-def ensemble_prediction(x_train, y_train, x_test, sample_weights):
-    y_pred_svm = svmClassify(x_train, y_train, x_train, [],
-        sample_weights, kernel = 'rbf', nu = 0.06, predict = True)
-    print(y_pred_svm)
-    y_pred_NN = simpleClassify(x_train, y_train, x_test, [],
-        sample_weights, predict = True)
-    y_true = []
-    y_l_s = label(y_pred_svm)
-    y_l_n = label(y_pred_NN)
-    for i in range(0, np.size(x_test, 0)) :
-        if y_l_s[i] == y_l_n[i]:
-            y_true.append(y_l_s[i])
-        else:
-            prob_s = y_pred_svm[i, y_l_s[i]]
-            prob_n = y_pred_NN[i, y_l_n[i]]
-            if prob_n > prob_s :
-                y_true.append(y_l_n[i])
-            else:
-                y_true.append(y_l_s[i])
+def convert_signals(train_sig, skip = False, fname = 'train_') :
+    
+    if skip :
+        hb, tf = load_signals(fname)
+        return hb, tf
 
-    return np.asarray(y_true)
+    cutoff = 5000
+    n = len(train_sig)
+
+    train_x_tf = np.zeros((n,cutoff), dtype = 'float64')    
+
+    train_x_hb = np.zeros((n, 2, 180), dtype = 'float64')   
+
+    for i in range(0, n) :
+        sig = np.asarray(train_sig[i], dtype = 'float64')
+        train_x_tf[i] = tools.analytic_signal(signal = sig, N = cutoff)[0]
+        rpeaks = ecg.christov_segmenter(signal = sig, sampling_rate = 300)
+        out = ecg.extract_heartbeats(signal = sig, rpeaks = rpeaks[0], sampling_rate = 300)
+        train_x_hb[i,0]  = np.mean(out[0], axis = 0)
+        train_x_hb[i,1] = np.std(out[0], axis = 0)
+    
+    return train_x_hb, train_x_tf 
+
+def save_signals(hb, tf, signame) :
+    savetxt(signame + 'hb.csv', hb.reshape(-1,180), delimiter=',')
+    savetxt(signame + 'tf.csv', tf, delimiter=',')
+
+def load_signals(signame) :
+    hb = loadtxt(signame + 'hb.csv', delimiter=',')
+    tf = loadtxt(signame + 'tf.csv', delimiter=',')
+    return hb.reshape(-1, 2, 180), tf
+
+        
+        
+        
     
 
 if __name__ == '__main__':
     #open files
     maxsize = 17813
-#    x_train, y_train, x_test = open_from_csv('X_train.csv', 'y_train.csv', 'X_test.csv')
-    sns.set()
-    y_train = pandas.read_csv( 'y_train.csv',   index_col='id').values
-    with open('X_train.csv', 'r') as f:
-        reader = csv.reader(f)
-        vals = list(reader)[1:]
-    [i.pop(0) for i in vals]
-    cutoff = 2000
+    #read in signals
+    train_sig, y_train, test_sig = read_data('X_train.csv', 'y_train.csv', 'X_test.csv' )
 
-    #TODO: try out which segmenters work best
-    #TODO: Try the Hilbert Transform!
+    #convert to fixed-frame signals
 
-    for n_s in range(200,400) :
-        fig = plt.figure()
-        fig.add_subplot(1,2,1)
-        #valar = np.absolute(np.fft.rfft(np.asarray(vals[n_s], dtype = 'float64')))/len(vals[n_s])
-        valar = tools.analytic_signal(signal = np.asarray(vals[n_s], dtype = 'float64'), N = cutoff)
-        sns.lineplot(np.arange(0,cutoff), valar[0])
+    train_x_hb, train_x_tf = convert_signals(train_sig)
+    
+    save_signals(train_x_hb, train_x_tf, 'train_')
 
-        
-        rpeaks = ecg.christov_segmenter(signal = np.asarray(vals[n_s], dtype='float64'), sampling_rate = 300)
+    test_x_hb, test_x_tf = convert_signals(train_sig)
+    
+    save_signals( test_x_hb, test_x_tf, 'test_')
 
-        out = ecg.extract_heartbeats(signal = np.asarray(vals[n_s], dtype='float64'), rpeaks = rpeaks[0], sampling_rate = 300, before = 0.2, after = 0.4)
+    #learn to predict c3 vs. rest
 
-        #out = ecg.ecg(signal=np.asarray(vals[n_s], dtype='float64'), sampling_rate=1000, show = False)
-        fig.add_subplot(1,2,2)
-        avg = np.mean(out[0], axis = 0)
-        STD = np.std(out[0], axis = 0)
-        sns.lineplot(np.linspace(-0.22, 0.4, avg.size), avg)
-        sns.lineplot(np.linspace(-0.22, 0.4,STD.size), STD)
- 
-        fig.savefig('img/S_' + str(n_s) + '_C_'+ str(y_train[n_s][0]) + '.png', dpi=450)
-        fig.clf()
-        plt.close('all')
-        
+    #learn to predict c0 vs. c1 vs. c2
+
 
     #DONE: check if the spectral sigs differ across classes
     #RESULT: significant differences between healthy & the two abnormal cases
-    #
-     
-    """
-    spectrals = np.zeros((4 ,maxsize))
-    cspectrals = np.zeros((4,maxsize), dtype = np.cdouble)
-    speccount = np.zeros(4)
-    count = 0
 
-    for i in vals :
-        idx = y_train[count]
-        fft = np.fft.rfft(np.asarray(i, dtype='float64'), maxsize)
-        spectrals[idx,:fft.size] = np.add(spectrals[idx,:fft.size] ,np.absolute(fft.reshape(1,-1)))
-        #cspectrals[idx,:fft.size] = np.add(spectrals[idx,:fft.size] ,fft.reshape(1,-1))
-
-        speccount[idx] += 1
-        count += 1
-    
-    for i in range(4) :
-        spectrals[i] /= speccount[i]
-        #sns.lineplot( np.arange(0,maxsize), spectrals[i])
-    sns.lineplot(np.arange(0,maxsize), np.subtract(spectrals[1], spectrals[2]))
-    plt.show()
-    """ 
