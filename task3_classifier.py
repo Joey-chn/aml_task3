@@ -15,6 +15,7 @@ import csv
 from biosppy.signals import ecg, tools
 import seaborn as sns
 import matplotlib.pyplot as plt
+from neuralNet import CNN_predict
 
 
 def get_class_weights(y_train) :
@@ -90,19 +91,24 @@ if __name__ == '__main__':
 
     #convert to fixed-frame signals
 
-    train_x_hb, train_x_tf = convert_signals(train_sig)
+    #train_x_hb, train_x_tf = convert_signals(train_sig)
     
-    save_signals(train_x_hb, train_x_tf, 'train_')
+    #save_signals(train_x_hb, train_x_tf, 'train_')
 
-    test_x_hb, test_x_tf = convert_signals(train_sig)
+    #test_x_hb, test_x_tf = convert_signals(train_sig)
     
-    save_signals( test_x_hb, test_x_tf, 'test_')
+    #save_signals( test_x_hb, test_x_tf, 'test_')
 
     #learn to predict c3 vs. rest
 
     #learn to predict c0 vs. c1 vs. c2
 
+    train_x_hb, train_x_tf = load_signals('train_')
+    
+    test_x_hb, test_x_tf = load_signals('test_')
 
+    predict_y = CNN_predict(test_x_hb, test_x_tf, y_train test_x_hb, test_x_tf)
+    
     #DONE: check if the spectral sigs differ across classes
     #RESULT: significant differences between healthy & the two abnormal cases
 
