@@ -27,7 +27,7 @@ def get_class_weights(y_train) :
 
 def result_to_csv(predict_y):
     # write the result to the CSV file
-    id = np.arange(np.size(y_pred)).reshape(-1,1)
+    id = np.arange(np.size(predict_y)).reshape(-1,1)
     result = np.concatenate((id, predict_y.reshape(-1,1)), axis=1)
     result = pandas.DataFrame(result, columns=['id', 'y'])
     result.to_csv('predict_y.csv', index=False)
@@ -47,12 +47,14 @@ def read_data(x_trainame, y_trainame, x_testname) :
     return tr_vals, y_train, te_vals
 
 def convert_signals(train_sig, skip = False, fname = 'train_') :
-    
+
+    maxsize = 17813
+
     if skip :
         hb, tf = load_signals(fname)
         return hb, tf
 
-    cutoff = 5000
+    cutoff = 2000
     n = len(train_sig)
 
     train_x_tf = np.zeros((n,cutoff), dtype = 'float64')    
@@ -61,11 +63,16 @@ def convert_signals(train_sig, skip = False, fname = 'train_') :
 
     for i in range(0, n) :
         sig = np.asarray(train_sig[i], dtype = 'float64')
-        train_x_tf[i] = tools.analytic_signal(signal = sig, N = cutoff)[0]
+        #train_x_tf[i] = tools.analytic_signal(signal = sig, N = cutoff)[0]
+        train_x_tf[i] = np.absolute(np.fft.rfft(sig, n = maxsize))[:cutoff]
         rpeaks = ecg.christov_segmenter(signal = sig, sampling_rate = 300)
         out = ecg.extract_heartbeats(signal = sig, rpeaks = rpeaks[0], sampling_rate = 300)
-        train_x_hb[i,0]  = np.mean(out[0], axis = 0)
-        train_x_hb[i,1] = np.std(out[0], axis = 0)
+        if out[0].size > 0 :
+            train_x_hb[i,0]  = np.mean(out[0], axis = 0)
+            train_x_hb[i,1] = np.std(out[0], axis = 0)
+        else :
+            train_x_hb[i,0] = np.zeros(180)
+            train_x_hb[i,1] = np.zeros(180)
     
     return train_x_hb, train_x_tf 
 
@@ -76,7 +83,7 @@ def save_signals(hb, tf, signame) :
 def load_signals(signame) :
     hb = loadtxt(signame + 'hb.csv', delimiter=',')
     tf = loadtxt(signame + 'tf.csv', delimiter=',')
-    return hb.reshape(-1, 2, 180), tf
+    return hb.reshape(-1, 2, 180, 1), tf.reshape(-1, tf[0].size, 1)
 
         
         
@@ -85,29 +92,29 @@ def load_signals(signame) :
 
 if __name__ == '__main__':
     #open files
-    maxsize = 17813
     #read in signals
     train_sig, y_train, test_sig = read_data('X_train.csv', 'y_train.csv', 'X_test.csv' )
 
+
     #convert to fixed-frame signals
-
-    #train_x_hb, train_x_tf = convert_signals(train_sig)
     
-    #save_signals(train_x_hb, train_x_tf, 'train_')
-
-    #test_x_hb, test_x_tf = convert_signals(train_sig)
+    train_x_hb, train_x_tf = convert_signals(train_sig)
     
-    #save_signals( test_x_hb, test_x_tf, 'test_')
+    save_signals(train_x_hb, train_x_tf, 'train_fft_')
 
-    #learn to predict c3 vs. rest
-
-    #learn to predict c0 vs. c1 vs. c2
-
-    train_x_hb, train_x_tf = load_signals('train_')
+    test_x_hb, test_x_tf = convert_signals(train_sig)
     
-    test_x_hb, test_x_tf = load_signals('test_')
+    save_signals( test_x_hb, test_x_tf, 'test_fft_')
+    
 
-    predict_y = CNN_predict(test_x_hb, test_x_tf, y_train test_x_hb, test_x_tf)
+
+    train_x_hb, train_x_tf = load_signals('train_fft_')
+    
+    test_x_hb, test_x_tf = load_signals('test_fft_')
+
+    predict_y = CNN_predict(test_x_hb, test_x_tf, y_train, test_x_hb, test_x_tf)
+
+    result_to_csv(predict_y)
     
     #DONE: check if the spectral sigs differ across classes
     #RESULT: significant differences between healthy & the two abnormal cases
