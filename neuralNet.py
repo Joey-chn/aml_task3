@@ -1,169 +1,315 @@
 import numpy as np
 import pandas as pd
-from keras.models import Sequential
+from keras.models import Model
 from keras.callbacks import ModelCheckpoint
-from keras.layers import Dense, Dropout, BatchNormalization, Lambda, Layer, GaussianNoise, Conv1D, MaxPooling1D, Flatten
+from keras.layers import Dense, Dropout, BatchNormalization, Lambda, Layer, GaussianNoise, Conv1D, MaxPooling1D, Flatten, Input, Concatenate, Reshape
 import tensorflow as tf
 from keras import backend as K
 from sklearn.model_selection import StratifiedKFold, train_test_split
-from sklearn.metrics import balanced_accuracy_score
+from sklearn.metrics import f1_score
 from keras.utils import np_utils
-from sklearn.svm import NuSVC, SVC
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.mixture  import BayesianGaussianMixture
-from sklearn.gaussian_process import GaussianProcessClassifier
+from sklearn.utils import class_weight
+import gc
+
+#optimal loss function
+
+def f1(y_true, y_pred):
+    y_pred = K.round(y_pred)
+    tp = K.sum(K.cast(y_true*y_pred, 'float'), axis=0)
+    tn = K.sum(K.cast((1-y_true)*(1-y_pred), 'float'), axis=0)
+    fp = K.sum(K.cast((1-y_true)*y_pred, 'float'), axis=0)
+    fn = K.sum(K.cast(y_true*(1-y_pred), 'float'), axis=0)
+
+    p = tp / (tp + fp + K.epsilon())
+    r = tp / (tp + fn + K.epsilon())
+
+    f1 = 2*p*r / (p+r+K.epsilon())
+    f1 = tf.where(tf.is_nan(f1), tf.zeros_like(f1), f1)
+    return K.mean(f1)
 
 
-def CNNModel(hb_length = 180,cutoff = 5000):
-    # Create model
-    act = 'sigmoid'
-    d_loss = 0.45
-
-    input_hb_avg = Input(shape = (hb_length,))
-    input_hb_var = Input(shape = (hb_length,))
-    input_tf     = Input(shape = (cutoff, ))
-
-    x = Conv1D(32, kernel_size = 50, activation = act)(input_hb_avg)
-    x = Lambda(lambda v: tf.cast(tf.spectral.fft(tf.cast(v,dtype=tf.complex64)),tf.float32)) (x)
-    x = Conv1D(64, kernel_size= 20, activation=act)(x)
-    x = MaxPooling1D(pool_size=3, strides=2)(x)
-    x = Model(inputs = input_hb_avg, outputs = x )
-
-    y = Conv1D(32, kernel_size = 50, activation = act)(input_hb_var)
-    y = Lambda(lambda v: tf.cast(tf.spectral.fft(tf.cast(v,dtype=tf.complex64)),tf.float32)) (y)
-    y = Conv1D(64, kernel_size= 20, activation=act)(y)
-    y = MaxPooling1D(pool_size=3, strides=2)(y)
-    y = Model(inputs = input_hb_var, outputs = y )
-
-    combined = concatenate( x.output, y.output)
-
-    z = Conv1D(128, kernel_size= 50, activation=act)(combined)
-    z = MaxPooling1D(pool_size=3, strides=2)(z)
-    z = Model(inputs = [x.output, y.output], outputs = z)
-
-    q = Conv1D(32, kernel_size = 100, activation = act)(input_tf)
-    q = MaxPooling1D(pool_size=3, strides=2)(q)
-    q = Conv1D(64, kernel_size= 50, activation=act)(q)
-    q = MaxPooling1D(pool_size=3, strides=2)(q)
-    q = Model(inputs = input_tf, outputs = q )
-
-    combined_2 = concatenate( z.output, q.output)
-
-    r = Dense(800, activation = act) (combined_2)
-    r = Dropout(d_loss)(r)
-    r = BatchNormalization()(r)
-    r = Dense(400, activation = act) (r)
-    r = Dropout(d_loss)(r)
-    r = BatchNormalization()(r)
-    r = Dense(2, activation = 'softmax')(r)
+def f1_loss(y_true, y_pred):
     
-    model = Model(inputs = [x.input, y.input, q.input], outputs = r)
+    tp = K.sum(K.cast(y_true*y_pred, 'float'), axis=0)
+    tn = K.sum(K.cast((1-y_true)*(1-y_pred), 'float'), axis=0)
+    fp = K.sum(K.cast((1-y_true)*y_pred, 'float'), axis=0)
+    fn = K.sum(K.cast(y_true*(1-y_pred), 'float'), axis=0)
 
-    model.compile(loss='categorical_crossentropy', optimizer='nadam', metrics=['categorical_accuracy'])    
+    p = tp / (tp + fp + K.epsilon())
+    r = tp / (tp + fn + K.epsilon())
+
+    f1 = 2*p*r / (p+r+K.epsilon())
+    f1 = tf.where(tf.is_nan(f1), tf.zeros_like(f1), f1)
+    return 1 - K.mean(f1)
+
+
+def get_class_weights(y_train) :
+    y_integers = np.argmax(np_utils.to_categorical(y_train), axis=1)
+    class_weights = class_weight.compute_class_weight('balanced', np.unique(y_integers), y_integers)
+    return dict(enumerate(class_weights))
+    #return class_weights
+
+def CNNModel2(classes, hb_length = 180,cutoff = 5000):
+    # Create model
+    act = 'relu'
+    act2 = 'sigmoid'
+    d_loss = 0.5
+
+    input_hb_avg = Input(shape = (hb_length,1))
+    input_hb_var = Input(shape = (hb_length,1))
+    input_tf     = Input(shape = (cutoff,1))
+
+    x0 = GaussianNoise(0.01)(input_hb_avg)
+    x = Conv1D(16, kernel_size = 50, activation = act)(x0)
+    x1 = Lambda(lambda v: tf.cast(tf.spectral.fft(tf.cast(v,dtype=tf.complex64)),tf.float32)) (x)
+    x2 = Conv1D(32, kernel_size= 25, activation=act)(x1)
+    x3 = MaxPooling1D(pool_size=3, strides=2)(x2)
+    x4 = Model(inputs = input_hb_avg, outputs = x2 )
+
+    y0 = GaussianNoise(0.01)(input_hb_var)
+    y = Conv1D(16, kernel_size = 50, activation = act)(y0)
+    y1 = Lambda(lambda v: tf.cast(tf.spectral.fft(tf.cast(v,dtype=tf.complex64)),tf.float32)) (y)
+    y2 = Conv1D(32, kernel_size= 25, activation=act)(y1)
+    y3 = MaxPooling1D(pool_size=3, strides=2)(y2)
+    y4 = Model(inputs = input_hb_var, outputs = y2 )
+
+    combined = Concatenate()( [x4.output, y4.output])
+
+    z = Conv1D(64, kernel_size= 20, activation=act)(combined)
+    z1 = MaxPooling1D(pool_size=3, strides=2)(z)
+    z2 = Model(inputs = [input_hb_avg, input_hb_var], outputs = z1)
+
+    q0 = GaussianNoise(0.01)(input_tf)
+    q = Conv1D(16, kernel_size = 200, activation = act)(q0)
+    q1 = MaxPooling1D(pool_size=8, strides=6)(q)
+    q2 = Conv1D(32, kernel_size= 100, activation=act)(q1)
+    q3 = MaxPooling1D(pool_size=4, strides=3)(q2)
+    q4 = Flatten()(q3)
+    q5 = Dense(2752, activation = act2)(q4)
+    q50 = Dropout(d_loss)(q5)
+    q51 = BatchNormalization()(q50)
+    q6 = Reshape((43,64))(q51)
+    q4 = Model(inputs = input_tf, outputs = q6 )
+
+    combined_2 = Concatenate()([ z2.output, q4.output])
+
+    r0 = Flatten() (combined_2)
+
+    r = Dense(512, activation = act2) (r0)
+    r = Dropout(d_loss)(r)
+    r = BatchNormalization()(r)
+
+    
+    r = Dense(256, activation = act2) (r0)
+    r = Dropout(d_loss)(r)
+    r = BatchNormalization()(r)
+    
+    r3 = Dense(128, activation = act2) (r)
+    r4 = Dropout(d_loss)(r3)
+    r5 = BatchNormalization()(r4)
+    r6 = Dense(classes, activation = 'softmax')(r5)
+    
+    model = Model(inputs = [input_hb_avg, input_hb_var, input_tf], outputs = r6)
+
+
+    model.compile(loss='categorical_crossentropy', optimizer='nadam', metrics=[f1])
 
     return model
+
+def CNNModel(classes, hb_length = 180,cutoff = 5000):
+    # Create model
+    act = 'relu'
+    d_loss = 0.45
+
+    input_hb_avg = Input(shape = (hb_length,1))
+    input_hb_var = Input(shape = (hb_length,1))
+    input_tf     = Input(shape = (cutoff,1))
+
+    x = Conv1D(32, kernel_size = 50, activation = act)(input_hb_avg)
+    x1 = Lambda(lambda v: tf.cast(tf.spectral.fft(tf.cast(v,dtype=tf.complex64)),tf.float32)) (x)
+    x2 = Conv1D(64, kernel_size= 20, activation=act)(x1)
+    x3 = MaxPooling1D(pool_size=3, strides=2)(x2)
+    x4 = Model(inputs = input_hb_avg, outputs = x3 )
+
+    y = Conv1D(32, kernel_size = 50, activation = act)(input_hb_var)
+    y1 = Lambda(lambda v: tf.cast(tf.spectral.fft(tf.cast(v,dtype=tf.complex64)),tf.float32)) (y)
+    y2 = Conv1D(64, kernel_size= 20, activation=act)(y1)
+    y3 = MaxPooling1D(pool_size=3, strides=2)(y2)
+    y4 = Model(inputs = input_hb_var, outputs = y3 )
+
+    combined = Concatenate()( [x4.output, y4.output])
+
+    z = Conv1D(128, kernel_size= 20, activation=act)(combined)
+    z1 = MaxPooling1D(pool_size=3, strides=2)(z)
+    z2 = Model(inputs = [input_hb_avg, input_hb_var], outputs = z1)
+
+    q = Conv1D(32, kernel_size = 100, activation = act)(input_tf)
+    q1 = MaxPooling1D(pool_size=3, strides=2)(q)
+    q2 = Conv1D(64, kernel_size= 50, activation=act)(q1)
+    q3 = MaxPooling1D(pool_size=3, strides=2)(q2)
+    q4 = Flatten()(q3)
+    q5 = Dense(2176, activation = act)(q4)
+    q6 = Reshape((17,128))(q5)
+    q4 = Model(inputs = input_tf, outputs = q6 )
+
+    combined_2 = Concatenate()([ z2.output, q4.output])
+
+    r0 = Flatten() (combined_2)
+    r = Dense(512, activation = act) (r0)
+    r1 = Dropout(d_loss)(r)
+    r2 = BatchNormalization()(r1)
+    r3 = Dense(256, activation = act) (r2)
+    r4 = Dropout(d_loss)(r3)
+    r5 = BatchNormalization()(r4)
+    r6 = Dense(classes, activation = 'softmax')(r5)
+    
+    model = Model(inputs = [input_hb_avg, input_hb_var, input_tf], outputs = r6)
+
+    if(classes == 2) :
+        model.compile(loss='binary_crossentropy', optimizer='nadam', metrics=['categorical_accuracy'])  
+    else:
+        model.compile(loss='categorical_crossentropy', optimizer='nadam', metrics=['categorical_accuracy'])
+
+    return model
+
+def surrogate(y_train):
+    y_one = []
+    for i in y_train:
+        if i == 3:
+            y_one.append(1)
+        else :
+            y_one.append(0)
+    return y_one
+    
+    
 
 def label(y_pred) :
     y_labeled = []
     for i in y_pred:
         y_labeled.append(int(np.where(i == np.amax(i))[0]))
-    return y_labeled   
+    return y_labeled
 
-def CNN_predict(test_x_hb, test_x_tf, y_train test_x_hb, test_x_tf) :
+def clean_c3tr (train_x_hb, train_x_tf, train_y):
+    bounds = train_y.size
+    i = 0
+    while i < bounds :
+        if train_y[i] == 3:
+            train_x_hb = np.delete(train_x_hb, i, 0)
+            train_x_tf = np.delete(train_x_tf, i, 0)
+            train_y = np.delete(train_y,i)
+            bounds -= 1
+        else :
+            i += 1
+    return train_x_hb, train_x_tf, train_y
+
+def clean_c3te (train_x_hb, train_x_tf, train_y):
+    bounds = len(train_y)
+    indices = np.arange(0, bounds)
+    i = 0
+    while i < bounds :
+        if train_y[i] == 1:
+            train_x_hb = np.delete(train_x_hb, i, 0)
+            train_x_tf = np.delete(train_x_tf, i, 0)
+            train_y = np.delete(train_y,i)
+            indices = np.delete(indices, i)
+            bounds -= 1
+        else :
+            i += 1
+    return train_x_hb, train_x_tf, indices
 
 
-def rfClassify(train_x, train_y, test_x, test_y, class_weights, estimators = 10, predict = False) :
-    rf = RandomForestClassifier(max_depth = 10, n_estimators = estimators, class_weight = class_weights)
-    rf.fit(train_x, train_y.reshape(-1,))
-    y_pred = rf.predict(test_x)
-    if ( predict == False) :
-        score =  balanced_accuracy_score(test_y.reshape(-1,1), y_pred)
-        print('Random Forest produced a score of:', score, ' for ', estimators, ' estimators.')
-        return score
-    else :
-        return y_pred
-
-def bgmClassify(train_x, train_y, test_x, test_y, predict = False) :
-    rf = GaussianProcessClassifier(max_iter_predict = 10000, n_restarts_optimizer = 10, n_jobs = -1)
-    rf.fit(train_x, train_y.reshape(-1,))
-    y_pred = rf.predict(test_x)
-    if ( predict == False) :
-        score =  balanced_accuracy_score(test_y.reshape(-1,1), y_pred)
-        print('GaussianProcess produced a score of:', score)
-        return score
-    else :
-        return y_pred
+def stitch_together(y_s_pred, y_pred, index):
+    y_full_pred = np.zeros(len(y_s_pred))
+    for i in range(0, len(y_s_pred)) :
+        if y_s_pred[i] == 1 :
+            y_full_pred[i] = 3
+    count = 0
+    for i in index:
+        y_full_pred[i] = y_pred[count]
+        count +=1
+    return y_full_pred
 
 
 
-def svmClassify(train_x, train_y, test_x, test_y, class_weights, kernel = 'rbf', gamma = 'scale', nu = 0.04, predict = False):
+def CNN_predict(train_x_hb, train_x_tf, train_y, test_x_hb, test_x_tf) :
 
-    clf = NuSVC(nu= nu,gamma= gamma,decision_function_shape = 'ovr',
-        probability = True, kernel=kernel, class_weight = class_weights)
+    predictions = np.size(test_x_tf,0)
+    #segment dataset into c3 vs rest
+    #weigh classes
+    X_train_hb, X_test_hb, X_train_tf, X_test_tf,  y_train, y_test = train_test_split(train_x_hb, train_x_tf, train_y, test_size=0.08, stratify = train_y)
 
-    clf.fit(train_x, train_y.reshape(-1,))
-    y_pred = clf.predict_proba(test_x)
-    if ( predict == False) :
-        score =  balanced_accuracy_score(test_y.reshape(-1,1), label(y_pred))
-        print('svm produced a score of:', score, ' for ', len(train_x[0]), ' variables.')
-        return score
-    else :
-        return y_pred
 
-def svcClassify(train_x, train_y, test_x, test_y, class_weights,
-    kernel = 'rbf', gamma = 'scale', _C = 1.0, predict = False) :
+    y_s = surrogate(y_train)
+    sample_weights = get_class_weights(y_s)
+
+    #train model on class 3 vs. rest
+    y_train_oneh_1 = np_utils.to_categorical(y_s)
     
-    clf = SVC(C = _C,gamma= gamma, kernel=kernel, class_weight = class_weights)
-    clf.fit(train_x, train_y.reshape(-1,))
-    y_pred = clf.predict(test_x)
-    if ( predict == False) :
-        score =  balanced_accuracy_score(test_y.reshape(-1,1), y_pred)
-        print('svc produced a score of:', score, ' for a gamma of', gamma, ' and a C of ', _C)
-        return score
-    else :
-        return y_pred
-
-
-
-
-def simpleClassify(train_x, train_y, test_x, test_y, sample_weights,  neurons = 1024, predict = False) :
-
-    # train labeled
-
-    ann1 = Model(train_x[0].size, neurons)
-    epochs = 3000
-    bestepoch = 700
+    cnn1 = CNNModel(2, X_train_hb[0,0].size, test_x_tf[0].size)
     
-    naive = ann1.get_weights()
-    bestweights = ann1.get_weights()
+    #evaluate performance with nicely splitted dtaset
     
-    X_train, X_test, y_train, y_test = train_test_split(train_x, train_y, test_size=0.08, stratify = train_y)
-    y_train_oneh = np_utils.to_categorical(y_train)
+    oldscore = 0
+    bestweights = cnn1.get_weights()
 
-    oldscore = 0.1
-    bestepoch = 0
-    UPDATE = 0
-    for i in range(0,epochs) :
-        ann1.fit(X_train, y_train_oneh, verbose = 1, epochs=1, batch_size=64, class_weight = sample_weights)
-        y_pred = ann1.predict(X_test)
-        score = balanced_accuracy_score(y_test, label(y_pred))
-        UPDATE += 1
+    for i in range(0,100):
+        cnn1.fit([X_train_hb[:,0], X_train_hb[:,1], X_train_tf], y_train_oneh_1, verbose = 1, epochs = 5, batch_size = 128, class_weight = sample_weights)
+        y_pred_t = label(cnn1.predict([X_test_hb[:,0], X_test_hb[:,1], X_test_tf]))
+        score = f1_score(surrogate(y_test), y_pred_t, average='micro')
+
         if score > oldscore :
+            bestweights = cnn1.get_weights()
             oldscore = score
-            print('new best score: ', score, ' at epoch', i)
-            bestepoch = i
-            bestweights = ann1.get_weights()
-            UPDATE = 0
-        if score > 0.75 :
-            break
+            print('new best score is: ', oldscore)
+    cnn1.set_weights(bestweights)
+    cnn1.save_weights('weights_c3.csv')
+    
+    cnn1.load_weights('weights_c3.csv')
+    y_s_pred = label(cnn1.predict([test_x_hb[:,0], test_x_hb[:,1], test_x_tf]))
 
-    ann1.set_weights(bestweights)
-    ann1.fit(X_test, np_utils.to_categorical(y_test), verbose = 1, epochs = 30, batch_size = 128,  class_weight = sample_weights)
-    y_pred = ann1.predict(test_x)
-#    print(y_pred)
-    if predict == False :
-        score = balanced_accuracy_score(test_y, label(y_pred))
-        print('model evaluated, had a score of ' , score)
-        return np.max([0.25,score])
-    else:
-        return y_pred
+    #remove all c3 instances from test and train dataset, BUT FIRST LABEL BY ID!
+    train_x_hb, train_x_tf, train_y = clean_c3tr(train_x_hb, train_x_tf, train_y)
+    test_x_hb, test_x_tf, index = clean_c3te(test_x_hb, test_x_tf, y_s_pred)
+
+    del cnn1
+    for i in range(4):
+        gc.collect()
+
+    #reset class weights
+    
+    sample_weights = get_class_weights(train_y)
+
+    #split Dataset again
+
+    X_train_hb, X_test_hb, X_train_tf, X_test_tf,  y_train, y_test = train_test_split(train_x_hb, train_x_tf, train_y, test_size=0.1, stratify = train_y)
+
+
+    cnn2 = CNNModel2(3, X_train_hb[0,0].size, test_x_tf[0].size)
+    
+    y_train_oneh_2 = np_utils.to_categorical(y_train)
+
+    oldscore = 0
+    bestweights = cnn2.get_weights()
+
+    #train model on c1, c2, c3
+
+    for i in range(0,100):
+        cnn2.fit([X_train_hb[:,0], X_train_hb[:,1], X_train_tf], y_train_oneh_2, verbose = 1, epochs = 5, batch_size = 128, class_weight = sample_weights)
+        y_pred_t = label(cnn2.predict([X_test_hb[:,0], X_test_hb[:,1], X_test_tf]))
+        score = f1_score(y_test, y_pred_t, average='micro')
+        print('validation score of ', score, ' at epoch ', i*5)
+
+        if score > oldscore :
+            bestweights = cnn2.get_weights()
+            cnn2.save_weights('weights_scored_' + str(score) +'.csv')
+            oldscore = score
+            print('new best score is: ', oldscore)
+    cnn2.set_weights(bestweights)
+    
+    y_pred = label(cnn2.predict([test_x_hb[:,0], test_x_hb[:,1], test_x_tf]))
+
+    y_full_pred = stitch_together(y_s_pred, y_pred, index)
+
+    
+
+    return y_full_pred
