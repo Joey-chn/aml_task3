@@ -12,7 +12,6 @@ from sklearn.utils import class_weight
 from sklearn.preprocessing import StandardScaler
 import csv
 from biosppy.signals import ecg
-import seaborn as sns
 import matplotlib.pyplot as plt
 
 
@@ -242,5 +241,5 @@ if __name__ == '__main__':
     plt.show()
     """
     
-    out = ecg.ecg(signal=np.asarray(vals[84], dtype='float64'), sampling_rate=300, show=True)
+    out = ecg.ecg(signal=np.asarray(vals[1], dtype='float64'), sampling_rate=300, show=True)
     
