@@ -10,8 +10,10 @@ from sklearn.metrics import f1_score
 from keras.utils import np_utils
 from sklearn.utils import class_weight
 import gc
+from random import sample
+from sklearn.preprocessing import StandardScaler
 
-#optimal loss function
+#optimal loss function, but not exactly the right one...
 
 def f1(y_true, y_pred):
     y_pred = K.round(y_pred)
@@ -51,51 +53,57 @@ def get_class_weights(y_train) :
 
 def CNNModel2(classes, hb_length = 180,cutoff = 5000):
     # Create model
-    act = 'relu'
+    act = 'sigmoid'
     act2 = 'sigmoid'
-    d_loss = 0.5
+    d_loss = 0.55
 
     input_hb_avg = Input(shape = (hb_length,1))
     input_hb_var = Input(shape = (hb_length,1))
     input_tf     = Input(shape = (cutoff,1))
 
-    x0 = GaussianNoise(0.01)(input_hb_avg)
+    x0 = GaussianNoise(30.0)(input_hb_avg)
     x = Conv1D(16, kernel_size = 50, activation = act)(x0)
     x1 = Lambda(lambda v: tf.cast(tf.spectral.fft(tf.cast(v,dtype=tf.complex64)),tf.float32)) (x)
     x2 = Conv1D(32, kernel_size= 25, activation=act)(x1)
     x3 = MaxPooling1D(pool_size=3, strides=2)(x2)
-    x4 = Model(inputs = input_hb_avg, outputs = x2 )
+    x4 = Model(inputs = input_hb_avg, outputs = x3 )
 
-    y0 = GaussianNoise(0.01)(input_hb_var)
+    y0 = GaussianNoise(30.0)(input_hb_var)
     y = Conv1D(16, kernel_size = 50, activation = act)(y0)
     y1 = Lambda(lambda v: tf.cast(tf.spectral.fft(tf.cast(v,dtype=tf.complex64)),tf.float32)) (y)
     y2 = Conv1D(32, kernel_size= 25, activation=act)(y1)
     y3 = MaxPooling1D(pool_size=3, strides=2)(y2)
-    y4 = Model(inputs = input_hb_var, outputs = y2 )
+    y4 = Model(inputs = input_hb_var, outputs = y3 )
 
     combined = Concatenate()( [x4.output, y4.output])
 
-    z = Conv1D(64, kernel_size= 20, activation=act)(combined)
+    z = Conv1D(32, kernel_size= 20, activation=act)(combined)
     z1 = MaxPooling1D(pool_size=3, strides=2)(z)
     z2 = Model(inputs = [input_hb_avg, input_hb_var], outputs = z1)
 
-    q0 = GaussianNoise(0.01)(input_tf)
+    q0 = GaussianNoise(200.0)(input_tf)
     q = Conv1D(16, kernel_size = 200, activation = act)(q0)
     q1 = MaxPooling1D(pool_size=8, strides=6)(q)
-    q2 = Conv1D(32, kernel_size= 100, activation=act)(q1)
-    q3 = MaxPooling1D(pool_size=4, strides=3)(q2)
-    q4 = Flatten()(q3)
-    q5 = Dense(2752, activation = act2)(q4)
-    q50 = Dropout(d_loss)(q5)
-    q51 = BatchNormalization()(q50)
-    q6 = Reshape((43,64))(q51)
+    q2 = Conv1D(32, kernel_size= 150, activation=act)(q1)
+    q3 = Lambda(lambda v: tf.cast(tf.spectral.fft(tf.cast(v,dtype=tf.complex64)),tf.float32)) (q2)
+    q30 = Conv1D(32, kernel_size= 100, activation=act)(q3)
+    q31 = MaxPooling1D(pool_size=4, strides=3)(q30)
+    q4 = Flatten()(q31)
+    q5 = Dense(512, activation = act2)(q4)
+
+    q5 = BatchNormalization()(q5)
+    q6 = Reshape((16,32))(q5)
     q4 = Model(inputs = input_tf, outputs = q6 )
 
     combined_2 = Concatenate()([ z2.output, q4.output])
 
     r0 = Flatten() (combined_2)
 
-    r = Dense(512, activation = act2) (r0)
+    r = Dense(1024, activation = act2) (r0)
+    r = Dropout(d_loss)(r)
+    r = BatchNormalization()(r)
+
+    r = Dense(512, activation = act2) (r)
     r = Dropout(d_loss)(r)
     r = BatchNormalization()(r)
 
@@ -112,9 +120,90 @@ def CNNModel2(classes, hb_length = 180,cutoff = 5000):
     model = Model(inputs = [input_hb_avg, input_hb_var, input_tf], outputs = r6)
 
 
-    model.compile(loss='categorical_crossentropy', optimizer='nadam', metrics=[f1])
+    if(classes == 2) :
+        model.compile(loss='binary_crossentropy', optimizer='nadam', metrics=['categorical_accuracy'])  
+    else:
+        model.compile(loss='categorical_crossentropy', optimizer='nadam', metrics=['categorical_accuracy', f1])
 
     return model
+
+
+def CNNModel1(classes, hb_length = 180,cutoff = 5000):
+    # Create model
+    act = 'relu'
+    act2 = 'relu'
+    d_loss = 0.55
+
+    input_hb_avg = Input(shape = (hb_length,1))
+    input_hb_var = Input(shape = (hb_length,1))
+    input_tf     = Input(shape = (cutoff,1))
+
+    x0 = GaussianNoise(10.0)(input_hb_avg)
+    x = Conv1D(16, kernel_size = 50, activation = act)(x0)
+    x1 = Lambda(lambda v: tf.cast(tf.spectral.fft(tf.cast(v,dtype=tf.complex64)),tf.float32)) (x)
+    x2 = Conv1D(32, kernel_size= 25, activation=act)(x1)
+    x3 = MaxPooling1D(pool_size=3, strides=2)(x2)
+    x4 = Model(inputs = input_hb_avg, outputs = x3 )
+
+    y0 = GaussianNoise(10.0)(input_hb_var)
+    y = Conv1D(16, kernel_size = 50, activation = act)(y0)
+    y1 = Lambda(lambda v: tf.cast(tf.spectral.fft(tf.cast(v,dtype=tf.complex64)),tf.float32)) (y)
+    y2 = Conv1D(32, kernel_size= 25, activation=act)(y1)
+    y3 = MaxPooling1D(pool_size=3, strides=2)(y2)
+    y4 = Model(inputs = input_hb_var, outputs = y3 )
+
+    combined = Concatenate()( [x4.output, y4.output])
+
+    z = Conv1D(32, kernel_size= 20, activation=act)(combined)
+    z1 = MaxPooling1D(pool_size=3, strides=2)(z)
+    z2 = Model(inputs = [input_hb_avg, input_hb_var], outputs = z1)
+
+    q0 = GaussianNoise(50.0)(input_tf)
+    q = Conv1D(16, kernel_size = 200, activation = act)(q0)
+    q1 = MaxPooling1D(pool_size=8, strides=6)(q)
+    q2 = Conv1D(32, kernel_size= 150, activation=act)(q1)
+    q3 = Lambda(lambda v: tf.cast(tf.spectral.fft(tf.cast(v,dtype=tf.complex64)),tf.float32)) (q2)
+    q30 = Conv1D(32, kernel_size= 100, activation=act)(q3)
+    q31 = MaxPooling1D(pool_size=4, strides=3)(q30)
+    q4 = Flatten()(q31)
+    q5 = Dense(512, activation = act2)(q4)
+
+    q5 = BatchNormalization()(q5)
+    q6 = Reshape((16,32))(q5)
+    q4 = Model(inputs = input_tf, outputs = q6 )
+
+    combined_2 = Concatenate()([ z2.output, q4.output])
+
+    r0 = Flatten() (combined_2)
+
+    r = Dense(1024, activation = act2) (r0)
+    r = Dropout(d_loss)(r)
+    r = BatchNormalization()(r)
+
+    r = Dense(512, activation = act2) (r)
+    r = Dropout(d_loss)(r)
+    r = BatchNormalization()(r)
+
+    
+    r = Dense(256, activation = act2) (r0)
+    r = Dropout(d_loss)(r)
+    r = BatchNormalization()(r)
+    
+    r3 = Dense(128, activation = act2) (r)
+    r4 = Dropout(d_loss)(r3)
+    r5 = BatchNormalization()(r4)
+    r6 = Dense(classes, activation = 'softmax')(r5)
+    
+    model = Model(inputs = [input_hb_avg, input_hb_var, input_tf], outputs = r6)
+
+
+    if(classes == 2) :
+        model.compile(loss='binary_crossentropy', optimizer='nadam', metrics=['categorical_accuracy'])  
+    else:
+        model.compile(loss='categorical_crossentropy', optimizer='nadam', metrics=['categorical_accuracy'])
+
+    return model
+
 
 def CNNModel(classes, hb_length = 180,cutoff = 5000):
     # Create model
@@ -143,9 +232,9 @@ def CNNModel(classes, hb_length = 180,cutoff = 5000):
     z1 = MaxPooling1D(pool_size=3, strides=2)(z)
     z2 = Model(inputs = [input_hb_avg, input_hb_var], outputs = z1)
 
-    q = Conv1D(32, kernel_size = 100, activation = act)(input_tf)
-    q1 = MaxPooling1D(pool_size=3, strides=2)(q)
-    q2 = Conv1D(64, kernel_size= 50, activation=act)(q1)
+    q = Conv1D(32, kernel_size = 200, activation = act)(input_tf)
+    q1 = MaxPooling1D(pool_size=4, strides=3)(q)
+    q2 = Conv1D(64, kernel_size= 10, activation=act)(q1)
     q3 = MaxPooling1D(pool_size=3, strides=2)(q2)
     q4 = Flatten()(q3)
     q5 = Dense(2176, activation = act)(q4)
@@ -189,11 +278,11 @@ def label(y_pred) :
         y_labeled.append(int(np.where(i == np.amax(i))[0]))
     return y_labeled
 
-def clean_c3tr (train_x_hb, train_x_tf, train_y):
+def clean_c3tr (train_x_hb, train_x_tf, train_y, c_ = 3):
     bounds = train_y.size
     i = 0
     while i < bounds :
-        if train_y[i] == 3:
+        if train_y[i] == c_:
             train_x_hb = np.delete(train_x_hb, i, 0)
             train_x_tf = np.delete(train_x_tf, i, 0)
             train_y = np.delete(train_y,i)
@@ -213,13 +302,14 @@ def clean_c3te (train_x_hb, train_x_tf, train_y):
             train_y = np.delete(train_y,i)
             indices = np.delete(indices, i)
             bounds -= 1
+            #print('one c3 occurrence deleted')
         else :
             i += 1
     return train_x_hb, train_x_tf, indices
 
 
 def stitch_together(y_s_pred, y_pred, index):
-    y_full_pred = np.zeros(len(y_s_pred))
+    y_full_pred = np.full((len(y_s_pred)), -1)
     for i in range(0, len(y_s_pred)) :
         if y_s_pred[i] == 1 :
             y_full_pred[i] = 3
@@ -231,12 +321,12 @@ def stitch_together(y_s_pred, y_pred, index):
 
 
 
-def CNN_predict(train_x_hb, train_x_tf, train_y, test_x_hb, test_x_tf) :
+def CNN_predict(train_x_hb, train_x_tf, train_y, test_x_hb, test_x_tf, eoe = False) :
 
     predictions = np.size(test_x_tf,0)
     #segment dataset into c3 vs rest
     #weigh classes
-    X_train_hb, X_test_hb, X_train_tf, X_test_tf,  y_train, y_test = train_test_split(train_x_hb, train_x_tf, train_y, test_size=0.08, stratify = train_y)
+    X_train_hb, X_test_hb, X_train_tf, X_test_tf,  y_train, y_test = train_test_split(train_x_hb, train_x_tf, train_y, test_size=0.04, stratify = train_y)
 
 
     y_s = surrogate(y_train)
@@ -245,14 +335,15 @@ def CNN_predict(train_x_hb, train_x_tf, train_y, test_x_hb, test_x_tf) :
     #train model on class 3 vs. rest
     y_train_oneh_1 = np_utils.to_categorical(y_s)
     
-    cnn1 = CNNModel(2, X_train_hb[0,0].size, test_x_tf[0].size)
-    
+    cnn1 = CNNModel1(2, X_train_hb[0,0].size, test_x_tf[0].size)
+   
+
     #evaluate performance with nicely splitted dtaset
     
     oldscore = 0
     bestweights = cnn1.get_weights()
 
-    for i in range(0,100):
+    for i in range(0,500):
         cnn1.fit([X_train_hb[:,0], X_train_hb[:,1], X_train_tf], y_train_oneh_1, verbose = 1, epochs = 5, batch_size = 128, class_weight = sample_weights)
         y_pred_t = label(cnn1.predict([X_test_hb[:,0], X_test_hb[:,1], X_test_tf]))
         score = f1_score(surrogate(y_test), y_pred_t, average='micro')
@@ -281,7 +372,7 @@ def CNN_predict(train_x_hb, train_x_tf, train_y, test_x_hb, test_x_tf) :
 
     #split Dataset again
 
-    X_train_hb, X_test_hb, X_train_tf, X_test_tf,  y_train, y_test = train_test_split(train_x_hb, train_x_tf, train_y, test_size=0.1, stratify = train_y)
+    X_train_hb, X_test_hb, X_train_tf, X_test_tf,  y_train, y_test = train_test_split(train_x_hb, train_x_tf, train_y, test_size=0.04, stratify = train_y)
 
 
     cnn2 = CNNModel2(3, X_train_hb[0,0].size, test_x_tf[0].size)
@@ -293,23 +384,24 @@ def CNN_predict(train_x_hb, train_x_tf, train_y, test_x_hb, test_x_tf) :
 
     #train model on c1, c2, c3
 
-    for i in range(0,100):
-        cnn2.fit([X_train_hb[:,0], X_train_hb[:,1], X_train_tf], y_train_oneh_2, verbose = 1, epochs = 5, batch_size = 128, class_weight = sample_weights)
+    for i in range(0,2500):
+        cnn2.fit([X_train_hb[:,0], X_train_hb[:,1], X_train_tf], y_train_oneh_2, verbose = 1, epochs = 1, batch_size = 128, class_weight = sample_weights)
         y_pred_t = label(cnn2.predict([X_test_hb[:,0], X_test_hb[:,1], X_test_tf]))
         score = f1_score(y_test, y_pred_t, average='micro')
-        print('validation score of ', score, ' at epoch ', i*5)
+        print('validation score of ', score, ' at epoch ', i)
 
         if score > oldscore :
             bestweights = cnn2.get_weights()
             cnn2.save_weights('weights_scored_' + str(score) +'.csv')
             oldscore = score
             print('new best score is: ', oldscore)
-    cnn2.set_weights(bestweights)
+    if eoe == False :
+        cnn2.set_weights(bestweights)
     
     y_pred = label(cnn2.predict([test_x_hb[:,0], test_x_hb[:,1], test_x_tf]))
 
     y_full_pred = stitch_together(y_s_pred, y_pred, index)
 
-    
-
     return y_full_pred
+
+
