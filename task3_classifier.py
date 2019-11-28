@@ -5,7 +5,6 @@ from sklearn.impute import SimpleImputer
 from sklearn.ensemble import IsolationForest
 from sklearn.feature_selection import SelectKBest, f_classif
 from keras.utils import np_utils
-#from neuralNet_OG import simpleClassify, svmClassify, rfClassify, bgmClassify, label, svcClassify
 from sklearn.decomposition import PCA
 from sklearn.linear_model import ElasticNetCV
 from sklearn.model_selection import StratifiedKFold, train_test_split
@@ -54,7 +53,7 @@ def convert_signals(train_sig, skip = False, fname = 'train_') :
         hb, tf = load_signals(fname)
         return hb, tf
 
-    cutoff = 2000
+    cutoff = 2500
     n = len(train_sig)
 
     train_x_tf = np.zeros((n,cutoff), dtype = 'float64')    
@@ -63,8 +62,8 @@ def convert_signals(train_sig, skip = False, fname = 'train_') :
 
     for i in range(0, n) :
         sig = np.asarray(train_sig[i], dtype = 'float64')
-        #train_x_tf[i] = tools.analytic_signal(signal = sig, N = cutoff)[0]
-        train_x_tf[i] = np.absolute(np.fft.rfft(sig, n = maxsize))[:cutoff]
+        train_x_tf[i] = tools.analytic_signal(signal = ecg.ecg(signal = sig, sampling_rate = 300, show = False)[1], N = cutoff, )[0]
+        #train_x_tf[i] = np.absolute(np.fft.rfft(sig, n = maxsize))[:cutoff]
         rpeaks = ecg.christov_segmenter(signal = sig, sampling_rate = 300)
         out = ecg.extract_heartbeats(signal = sig, rpeaks = rpeaks[0], sampling_rate = 300)
         if out[0].size > 0 :
@@ -97,22 +96,21 @@ if __name__ == '__main__':
 
 
     #convert to fixed-frame signals
-    
+    """
     train_x_hb, train_x_tf = convert_signals(train_sig)
     
-    save_signals(train_x_hb, train_x_tf, 'train_fft_')
+    save_signals(train_x_hb, train_x_tf, 'train_')
 
-    test_x_hb, test_x_tf = convert_signals(train_sig)
+    test_x_hb, test_x_tf = convert_signals(test_sig)
     
-    save_signals( test_x_hb, test_x_tf, 'test_fft_')
+    save_signals( test_x_hb, test_x_tf, 'test_')
+    """
+
+    train_x_hb, train_x_tf = load_signals('train_')
     
+    test_x_hb, test_x_tf = load_signals('test_')
 
-
-    train_x_hb, train_x_tf = load_signals('train_fft_')
-    
-    test_x_hb, test_x_tf = load_signals('test_fft_')
-
-    predict_y = CNN_predict(test_x_hb, test_x_tf, y_train, test_x_hb, test_x_tf)
+    predict_y = CNN_predict(train_x_hb, train_x_tf, y_train, test_x_hb, test_x_tf)
 
     result_to_csv(predict_y)
     
