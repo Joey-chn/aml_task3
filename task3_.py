@@ -38,7 +38,14 @@ def feature_extraction(X):
         templates = signal_processed[4]
         # take the median of templates along row dimension
         template_median = np.median(templates, axis=0)
-        X_new.append(template_median)
+        # take the minimum R peaks
+        rpeaks_location = signal_processed[2]
+        rpeaks = row[rpeaks_location]
+        rpeaks_min = min(rpeaks)
+        rpeaks_max = max(rpeaks)
+        features = np.append(template_median, [rpeaks_min, rpeaks_max])
+        # add the new point into  all datapoints
+        X_new.append(features)
     X_new = np.array(X_new)
     print(X_new.shape)
     return X_new
@@ -92,7 +99,7 @@ def svmClassifier(train_x, train_y, test_x):
     train_y = train_y.ravel()
     class_weighting = {0: 1.6, 1: 0.2, 2: 1.6}
 
-    classifier = SVC(class_weight='balanced', gamma=0.02, C=2)  # c the penalty term for misclassification
+    classifier = SVC(class_weight='balanced', gamma=0.1, C=5)  # c the penalty term for misclassification
     # make balanced_accuracy_scorer
     score_func = make_scorer(f1_score, average='micro') # additional param for f1_score
     # cross validation
@@ -104,7 +111,6 @@ def svmClassifier(train_x, train_y, test_x):
     y_predict_test = classifier.predict(test_x)
     return y_predict_test
 
-    #TODO: add the minimum R peak value to the feature sets
 
 if __name__ == '__main__':
     is_start = False
@@ -133,10 +139,12 @@ if __name__ == '__main__':
         x_train_std =  pd.read_csv('X_train_temMed.csv', delimiter=' ', index_col=False, header = None).to_numpy()
         x_test_std = pd.read_csv('X_test_temMed.csv', delimiter=' ', index_col=False, header=None).to_numpy()
         y_train = pd.read_csv('y_train.csv', index_col='id').to_numpy()
-        print(x_train_std.shape, y_train.shape)
+        print(x_train_std[[10, 14, 17, 18]][:, -2:])
     # prediction
     # y_predict = grid_search(x_train_selected, y_train, x_test_selected)
     y_predict = svmClassifier(x_train_std, y_train, x_test_std)
+    # neural net
+
     result_to_csv(y_predict, 'sample.csv')
 
 
