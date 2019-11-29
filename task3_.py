@@ -10,6 +10,9 @@ from sklearn.model_selection import cross_val_score
 # from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import balanced_accuracy_score, make_scorer
 from sklearn.metrics import f1_score
+from neuralNet import neurNet_classifier
+from sklearn.ensemble import AdaBoostClassifier
+from sklearn.tree import DecisionTreeClassifier
 
 
 def read_from_file(X_train_file, y_train_file, X_predict_file):
@@ -43,7 +46,10 @@ def feature_extraction(X):
         rpeaks = row[rpeaks_location]
         rpeaks_min = min(rpeaks)
         rpeaks_max = max(rpeaks)
-        features = np.append(template_median, [rpeaks_min, rpeaks_max])
+        # take the hearbeat rate
+        heartbeat_rate = signal_processed[-1]
+        features = np.append(template_median, [rpeaks_min, rpeaks_max, heartbeat_rate])
+
         # add the new point into  all datapoints
         X_new.append(features)
     X_new = np.array(X_new)
@@ -97,9 +103,7 @@ def standarlization(train_x, test_x):
 
 def svmClassifier(train_x, train_y, test_x):
     train_y = train_y.ravel()
-    class_weighting = {0: 1.6, 1: 0.2, 2: 1.6}
-
-    classifier = SVC(class_weight='balanced', gamma=0.1, C=5)  # c the penalty term for misclassification
+    classifier = SVC(class_weight='balanced', gamma=0.005, C=1)  # c the penalty term for misclassification
     # make balanced_accuracy_scorer
     score_func = make_scorer(f1_score, average='micro') # additional param for f1_score
     # cross validation
@@ -111,6 +115,19 @@ def svmClassifier(train_x, train_y, test_x):
     y_predict_test = classifier.predict(test_x)
     return y_predict_test
 
+def adaBoostClassifier(train_x, train_y, test_x):
+    train_y = train_y.ravel()
+    classifier = AdaBoostClassifier(base_estimator=DecisionTreeClassifier(max_depth=1), n_estimators=55, learning_rate=1)
+    # make balanced_accuracy_scorer
+    score_func = make_scorer(f1_score, average='micro')  # additional param for f1_score
+    # cross validation
+    scores = cross_val_score(classifier, train_x, train_y, cv=5, scoring=score_func)
+    print(scores)
+
+    # learn on all data
+    classifier.fit(train_x, train_y)
+    y_predict_test = classifier.predict(test_x)
+    return y_predict_test
 
 if __name__ == '__main__':
     is_start = False
@@ -139,12 +156,14 @@ if __name__ == '__main__':
         x_train_std =  pd.read_csv('X_train_temMed.csv', delimiter=' ', index_col=False, header = None).to_numpy()
         x_test_std = pd.read_csv('X_test_temMed.csv', delimiter=' ', index_col=False, header=None).to_numpy()
         y_train = pd.read_csv('y_train.csv', index_col='id').to_numpy()
-        print(x_train_std[[10, 14, 17, 18]][:, -2:])
+        # print(x_train_std[[10, 14, 17, 18]][:, -2:])
     # prediction
     # y_predict = grid_search(x_train_selected, y_train, x_test_selected)
     y_predict = svmClassifier(x_train_std, y_train, x_test_std)
     # neural net
-
+    # y_predict = neurNet_classifier(x_train_std, y_train, x_test_std)
+    # Adaboost classifier
+    # y_predict = adaBoostClassifier(x_train_std, y_train, x_test_std)
     result_to_csv(y_predict, 'sample.csv')
 
 
