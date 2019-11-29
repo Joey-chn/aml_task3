@@ -14,6 +14,7 @@ from neuralNet import neurNet_classifier
 from sklearn.ensemble import AdaBoostClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.impute import SimpleImputer
+from pyhrv import hrv
 
 
 def read_from_file(X_train_file, y_train_file, X_predict_file):
@@ -44,11 +45,13 @@ def feature_extraction(X):
         template_median = np.median(templates, axis=0)
         # take the minimum R peaks
         rpeaks_location = signal_processed[2]
+        rpeaks_location = ecg.correct_rpeaks(signals = row, rpeaks = rpeaks_location, sampling_rate=300)
         rpeaks = row[rpeaks_location]
         rpeaks_min = min(rpeaks)
         rpeaks_max = max(rpeaks)
+
         # take the hearbeat rate
-        heartbeat_rate = signal_processed[-1]
+        # heartbeat_rate = signal_processed[-1]
         # in case where the heartbeat is empty in the result
         # if heartbeat_rate.size == 0:
         #     hb_rate_min = np.nan
@@ -56,12 +59,20 @@ def feature_extraction(X):
         # else:
         #     hb_rate_min = min(heartbeat_rate)
         #     hb_rate_max = max(heartbeat_rate)
-        features = np.append(template_median, [rpeaks_min, rpeaks_max])
+
+        # add RR intervals into the feature
+        rr_interval = np.diff(rpeaks_location)
+        print("rr_interval: ", rr_interval)
+        rr_diff = max(rr_interval) - min(rr_interval)
+        features = np.append(template_median, [rpeaks_min, rpeaks_max, rr_diff])
 
         # add the new point into  all datapoints
         X_new.append(features)
     X_new = np.array(X_new)
     return X_new
+
+
+def caculae_hrv(signal, rpeaks_time, ):
 
 
 def processed_to_csv(X_train, flag = 'train'):
@@ -70,25 +81,6 @@ def processed_to_csv(X_train, flag = 'train'):
         np.savetxt('X_test_temMed.csv', X)
     else:
         np.savetxt('X_train_temMed.csv', X)
-
-
-def check_balance(train_y):
-    count_0 = 0
-    count_1 = 0
-    count_2 = 0
-    count_3 = 0
-    train_y = train_y.squeeze()
-    for elem in train_y:
-        if elem == 0:
-            count_0 += 1
-        elif elem == 1:
-            count_1 += 1
-        elif elem == 2:
-            count_2 += 1
-        else:
-            count_3 += 1
-    print("class 0: {:}, class 1: {:}, class 2: {:}, class 3: {:}".format(count_0, count_1, count_2, count_3))
-    # class 0: 3030, class 1: 443, class 2: 1474, class 3: 170
 
 
 def result_to_csv(predict_y, sample_file):
