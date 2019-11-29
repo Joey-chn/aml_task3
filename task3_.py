@@ -13,6 +13,7 @@ from sklearn.metrics import f1_score
 from neuralNet import neurNet_classifier
 from sklearn.ensemble import AdaBoostClassifier
 from sklearn.tree import DecisionTreeClassifier
+from sklearn.impute import SimpleImputer
 
 
 def read_from_file(X_train_file, y_train_file, X_predict_file):
@@ -48,12 +49,18 @@ def feature_extraction(X):
         rpeaks_max = max(rpeaks)
         # take the hearbeat rate
         heartbeat_rate = signal_processed[-1]
-        features = np.append(template_median, [rpeaks_min, rpeaks_max, heartbeat_rate])
+        # in case where the heartbeat is empty in the result
+        # if heartbeat_rate.size == 0:
+        #     hb_rate_min = np.nan
+        #     hb_rate_max = np.nan
+        # else:
+        #     hb_rate_min = min(heartbeat_rate)
+        #     hb_rate_max = max(heartbeat_rate)
+        features = np.append(template_median, [rpeaks_min, rpeaks_max])
 
         # add the new point into  all datapoints
         X_new.append(features)
     X_new = np.array(X_new)
-    print(X_new.shape)
     return X_new
 
 
@@ -115,6 +122,7 @@ def svmClassifier(train_x, train_y, test_x):
     y_predict_test = classifier.predict(test_x)
     return y_predict_test
 
+
 def adaBoostClassifier(train_x, train_y, test_x):
     train_y = train_y.ravel()
     classifier = AdaBoostClassifier(base_estimator=DecisionTreeClassifier(max_depth=1), n_estimators=55, learning_rate=1)
@@ -129,8 +137,9 @@ def adaBoostClassifier(train_x, train_y, test_x):
     y_predict_test = classifier.predict(test_x)
     return y_predict_test
 
+
 if __name__ == '__main__':
-    is_start = False
+    is_start = True
     # read data from files
     if is_start:
         all_data = read_from_file("X_train.csv", "y_train.csv", "X_test.csv")
@@ -138,7 +147,6 @@ if __name__ == '__main__':
         x_train_raw = all_data[0]
         x_test_raw = all_data[2]
 
-        print(x_train_raw.shape, y_train.shape)
         # feature extraction for x_train and x_test
         x_train_temMed = feature_extraction(x_train_raw) # 180 features
         x_test_temMed =  feature_extraction(x_test_raw) # 180 features
