@@ -17,6 +17,7 @@ from sklearn.impute import SimpleImputer
 from pyhrv import hrv
 import pyhrv.time_domain as td
 from sklearn.model_selection import GridSearchCV
+import neurokit as nk
 
 
 def read_from_file(X_train_file, y_train_file, X_predict_file):
@@ -45,6 +46,7 @@ def feature_extraction(X):
         templates = signal_processed[4]
         # take the median of templates along row dimension
         template_median = np.median(templates, axis=0)
+        template_mean = np.mean(templates, axis = 0)
         # take the minimum R peaks
         rpeaks_location = signal_processed[2]
         rpeaks_location = ecg.correct_rpeaks(signal = row, rpeaks = rpeaks_location, sampling_rate=300)
@@ -71,6 +73,7 @@ def feature_extraction(X):
         # add hrv into the feature
         # hrv_val = caculate_hrv(row, rpeaks)
         features = np.append(template_median, [rpeaks_min, rpeaks_max, rpeaks_mean, rpeaks_var, rr_min, rr_max, rr_var])
+        features = np.concatenate((template_mean, features), axis = 0)
         # add the new point into  all datapoints
         X_new.append(features)
     X_new = np.array(X_new)
