@@ -1,5 +1,6 @@
 import pandas
 import numpy as np
+import spectrum
 from numpy import savetxt, loadtxt
 from sklearn.impute import SimpleImputer
 from sklearn.ensemble import IsolationForest
@@ -15,6 +16,7 @@ from biosppy.signals import ecg, tools
 import seaborn as sns
 import matplotlib.pyplot as plt
 from neuralNet import CNN_predict
+import pyhrv as hr
 
 
 def get_class_weights(y_train) :
@@ -94,17 +96,18 @@ if __name__ == '__main__':
     #read in signals
     train_sig, y_train, test_sig = read_data('X_train.csv', 'y_train.csv', 'X_test.csv' )
 
+    data = hr.hrv(signal =np.asarray(train_sig[0], dtype = 'float64'), sampling_rate = 300.0)
 
     #convert to fixed-frame signals
-    """
-    train_x_hb, train_x_tf = convert_signals(train_sig)
+    
+    train_x_hb, train_x_tf, train_x_hr = convert_signals(train_sig)
     
     save_signals(train_x_hb, train_x_tf, 'train_')
 
-    test_x_hb, test_x_tf = convert_signals(test_sig)
+    test_x_hb, test_x_tf, test_x_hr = convert_signals(test_sig)
     
     save_signals( test_x_hb, test_x_tf, 'test_')
-    """
+    
 
     train_x_hb, train_x_tf = load_signals('train_')
     
