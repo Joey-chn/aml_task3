@@ -18,20 +18,20 @@ from pyhrv import hrv
 import pyhrv.time_domain as td
 from sklearn.model_selection import GridSearchCV
 import neurokit as nk
+from sklearn.externals import joblib
 
 
-def read_from_file(X_train_file, y_train_file, X_predict_file):
-    # read from files
-    x_train = pd.read_csv(X_train_file, index_col='id').to_numpy()
-    y_train = pd.read_csv(y_train_file, index_col='id').to_numpy()
-    # convert it to np array
 
-    # xy = np.concatenate([x_train, y_train], axis=1)
-    # np.random.shuffle(xy)
-    # x_train = xy[:, :-1]
-    # y_train = xy[:, -1]
-    # print(x_train.shape, y_train.shape) # num of points : 5117, rang of ecg 17814
-    x_predict = pd.read_csv(X_predict_file).to_numpy()
+def read_from_file(X_train_file, y_train_file, X_predict_file, is_testing = True):
+    x_predict = []
+    y_train = []
+    if is_testing:
+        # read from files
+        x_train = pd.read_csv(X_train_file, index_col='id', nrows = 30).to_numpy()
+    else:
+        x_train = pd.read_csv(X_train_file, index_col='id').to_numpy()
+        y_train = pd.read_csv(y_train_file, index_col='id').to_numpy()
+        x_predict = pd.read_csv(X_predict_file).to_numpy()
     return x_train, y_train, x_predict
 
 
@@ -39,7 +39,12 @@ def feature_extraction(X):
     # get all the templates for one person, take the median value, get one template for each person
     # remove nan value in nparray
     X_new = []
+    count = 0
     for row in X:
+        count += 1
+        print(count)
+        if count in [628, 629, 3501, 3721, 4702]:
+            continue
         row = row[np.logical_not(np.isnan(row))]
         # extract all heartbeats templates
         signal_processed = ecg.ecg(signal=row, sampling_rate=300, show=False)
@@ -50,6 +55,23 @@ def feature_extraction(X):
         # take the minimum R peaks
         rpeaks_location = signal_processed[2]
         rpeaks_location = ecg.correct_rpeaks(signal = row, rpeaks = rpeaks_location, sampling_rate=300)
+        features_raw = nk.ecg_preprocess(ecg=row, sampling_rate=300)
+        # Q-waves
+        Q_idx = features_raw['ECG']['Q_Waves']
+        # T_idx = features_raw['ECG']['T_Waves']
+        Q_wave = row[Q_idx]
+        # T_wave = row[T_idx]
+        Q_min = min(Q_wave)
+        Q_max = max(Q_wave)
+        # if len(T_wave > 0):
+        #     T_min = min(T_wave)
+        #     T_max = max(T_wave)
+        #     T_var = np.var(T_wave)
+        # else:
+        #     T_min, T_max, T_var = 0, 0, 0
+
+        Q_var = np.var(Q_wave)
+        # R-peaks
         rpeaks = row[rpeaks_location]
         rpeaks_min = min(rpeaks)
         rpeaks_max = max(rpeaks)
@@ -72,19 +94,13 @@ def feature_extraction(X):
         rr_max = np.max(rr_interval)
         # add hrv into the feature
         # hrv_val = caculate_hrv(row, rpeaks)
-        features = np.append(template_median, [rpeaks_min, rpeaks_max, rpeaks_mean, rpeaks_var, rr_min, rr_max, rr_var])
-        features = np.concatenate((template_mean, features), axis = 0)
+        features = np.append(template_median, [rpeaks_min, rpeaks_max, rpeaks_mean, rpeaks_var, rr_min, rr_max, rr_var, Q_min, Q_max,  Q_var])
+        # features = np.concatenate((template_mean, features), axis = 0)
         # add the new point into  all datapoints
         X_new.append(features)
     X_new = np.array(X_new)
+    print(X_new.shape)
     return X_new
-
-
-# def caculate_hrv(signal_row, rpeaks):
-#     # caculate heartbeat variance
-#     nni_param = td.nni_parameters(rpeaks=rpeaks)
-#     hrv_val = hrv(nni = nni_param, signal = signal_row, sampling_rate=300)['hr_std']
-#     return hrv_val
 
 
 def processed_to_csv(X_train, flag = 'train'):
@@ -155,16 +171,19 @@ def adaBoostClassifier(train_x, train_y, test_x):
 
 if __name__ == '__main__':
     is_start = True
+    is_testing = False
     # read data from files
     if is_start:
-        all_data = read_from_file("X_train.csv", "y_train.csv", "X_test.csv")
+        all_data = read_from_file("X_train.csv", "y_train.csv", "X_test.csv", is_testing)
         y_train = all_data[1]
+        for i in [628, 629, 3501, 3721, 4702]:
+            y_train = np.delete(y_train, i) # empty heartrate
         x_train_raw = all_data[0]
         x_test_raw = all_data[2]
 
         # feature extraction for x_train and x_test
-        x_train_temMed = feature_extraction(x_train_raw) # 180 features
-        x_test_temMed =  feature_extraction(x_test_raw) # 180 features
+        x_train_temMed = feature_extraction(x_train_raw)
+        x_test_temMed =  feature_extraction(x_test_raw)
 
         # standarlization
         x_std = standarlization(x_train_temMed, x_test_temMed)
