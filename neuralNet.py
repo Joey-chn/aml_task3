@@ -51,6 +51,96 @@ def get_class_weights(y_train) :
     return dict(enumerate(class_weights))
     #return class_weights
 
+def CNNModel3(classes, hb_length = 180,cutoff = 5000, hrv_len = 20):
+    # Create model
+    act = 'sigmoid'
+    act2 = 'sigmoid'
+    d_loss = 0.55
+
+    input_hb_avg = Input(shape = (hb_length,1))
+    input_hb_var = Input(shape = (hb_length,1))
+    input_tf     = Input(shape = (cutoff,1))
+    input_hrv =    Input(shape = (hrv_len,))
+
+    x0 = GaussianNoise(30.0)(input_hb_avg)
+    x = Conv1D(16, kernel_size = 50, activation = act)(x0)
+    x1 = Lambda(lambda v: tf.cast(tf.spectral.fft(tf.cast(v,dtype=tf.complex64)),tf.float32)) (x)
+    x2 = Conv1D(32, kernel_size= 25, activation=act)(x1)
+    x3 = MaxPooling1D(pool_size=3, strides=2)(x2)
+    x4 = Model(inputs = input_hb_avg, outputs = x3 )
+
+    y0 = GaussianNoise(30.0)(input_hb_var)
+    y = Conv1D(16, kernel_size = 50, activation = act)(y0)
+    y1 = Lambda(lambda v: tf.cast(tf.spectral.fft(tf.cast(v,dtype=tf.complex64)),tf.float32)) (y)
+    y2 = Conv1D(32, kernel_size= 25, activation=act)(y1)
+    y3 = MaxPooling1D(pool_size=3, strides=2)(y2)
+    y4 = Model(inputs = input_hb_var, outputs = y3 )
+
+    combined = Concatenate()( [x4.output, y4.output])
+
+    z = Conv1D(32, kernel_size= 20, activation=act)(combined)
+    z1 = MaxPooling1D(pool_size=3, strides=2)(z)
+    z2 = Model(inputs = [input_hb_avg, input_hb_var], outputs = z1)
+
+    q0 = GaussianNoise(200.0)(input_tf)
+    q = Conv1D(16, kernel_size = 200, activation = act)(q0)
+    q1 = MaxPooling1D(pool_size=8, strides=6)(q)
+    q2 = Conv1D(32, kernel_size= 150, activation=act)(q1)
+    q3 = Lambda(lambda v: tf.cast(tf.spectral.fft(tf.cast(v,dtype=tf.complex64)),tf.float32)) (q2)
+    q30 = Conv1D(32, kernel_size= 100, activation=act)(q3)
+    q31 = MaxPooling1D(pool_size=4, strides=3)(q30)
+    q4 = Flatten()(q31)
+    q5 = Dense(512, activation = act2)(q4)
+
+    q5 = BatchNormalization()(q5)
+    q6 = Reshape((16,32))(q5)
+    q4 = Model(inputs = input_tf, outputs = q6 )
+
+    bypass = Flatten()(q2)
+    bypass = Dense(256, activation = act2)(bypass)
+    bypass = Dropout(d_loss)(bypass)
+    bypass = BatchNormalization()(bypass)
+
+
+    combined_2 = Concatenate()([ z2.output, q4.output])
+
+    r0 = Flatten() (combined_2)
+
+    r = Dense(1024, activation = act2) (r0)
+    r = Dropout(d_loss)(r)
+    r = BatchNormalization()(r)
+
+    r = Dense(512, activation = act2) (r)
+    r = Dropout(d_loss)(r)
+    r = BatchNormalization()(r)
+
+    s = Dense(512, activation = act2)(input_hrv)
+    s = Dropout(d_loss)(s)
+    s = BatchNormalization()(s)
+
+
+    combined_3= Concatenate()([r, s])
+    
+    r = Dense(256, activation = act2) (combined_3)
+    r = Dropout(d_loss)(r)
+    r = BatchNormalization()(r)
+    r = Add()([r, bypass])
+    
+    r3 = Dense(128, activation = act2) (r)
+    r4 = Dropout(d_loss)(r3)
+    r5 = BatchNormalization()(r4)
+    r6 = Dense(classes, activation = 'softmax')(r5)
+    
+    model = Model(inputs = [input_hb_avg, input_hb_var, input_tf, input_hrv], outputs = r6)
+
+
+    if(classes == 2) :
+        model.compile(loss='binary_crossentropy', optimizer='nadam', metrics=['categorical_accuracy'])  
+    else:
+        model.compile(loss='categorical_crossentropy', optimizer='nadam', metrics=['categorical_accuracy', f1])
+
+    return model
+
 def CNNModel2(classes, hb_length = 180,cutoff = 5000):
     # Create model
     act = 'sigmoid'
@@ -95,6 +185,12 @@ def CNNModel2(classes, hb_length = 180,cutoff = 5000):
     q6 = Reshape((16,32))(q5)
     q4 = Model(inputs = input_tf, outputs = q6 )
 
+    bypass = Flatten()(q2)
+    bypass = Dense(256, activation = act2)(bypass)
+    bypass = Dropout(d_loss)(bypass)
+    bypass = BatchNormalization()(bypass)
+
+
     combined_2 = Concatenate()([ z2.output, q4.output])
 
     r0 = Flatten() (combined_2)
@@ -111,6 +207,7 @@ def CNNModel2(classes, hb_length = 180,cutoff = 5000):
     r = Dense(256, activation = act2) (r0)
     r = Dropout(d_loss)(r)
     r = BatchNormalization()(r)
+    r = Add()([r, bypass])
     
     r3 = Dense(128, activation = act2) (r)
     r4 = Dropout(d_loss)(r3)
