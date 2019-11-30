@@ -31,11 +31,11 @@ def read_from_file(X_train_file, y_train_file, X_predict_file, is_testing = True
     else:
         x_train = pd.read_csv(X_train_file, index_col='id').to_numpy()
         y_train = pd.read_csv(y_train_file, index_col='id').to_numpy()
-        x_predict = pd.read_csv(X_predict_file).to_numpy()
+        x_predict = pd.read_csv(X_predict_file, nrows = 30).to_numpy()
     return x_train, y_train, x_predict
 
 
-def feature_extraction(X):
+def feature_extraction(X, is_test = False):
     # get all the templates for one person, take the median value, get one template for each person
     # remove nan value in nparray
     X_new = []
@@ -43,7 +43,7 @@ def feature_extraction(X):
     for row in X:
         count += 1
         print(count)
-        if count in [628, 629, 3501, 3721, 4702]:
+        if not is_test and count in [628, 629, 3501, 3721, 4702]:
             continue
         row = row[np.logical_not(np.isnan(row))]
         # extract all heartbeats templates
@@ -176,14 +176,16 @@ if __name__ == '__main__':
     if is_start:
         all_data = read_from_file("X_train.csv", "y_train.csv", "X_test.csv", is_testing)
         y_train = all_data[1]
-        for i in [628, 629, 3501, 3721, 4702]:
+        outlier = [628, 629, 3501, 3721, 4702]
+        outlier_inv = outlier[::-1]
+        for i in outlier_inv:
             y_train = np.delete(y_train, i) # empty heartrate
         x_train_raw = all_data[0]
         x_test_raw = all_data[2]
 
         # feature extraction for x_train and x_test
         x_train_temMed = feature_extraction(x_train_raw)
-        x_test_temMed =  feature_extraction(x_test_raw)
+        x_test_temMed =  feature_extraction(x_test_raw, True)
 
         # standarlization
         x_std = standarlization(x_train_temMed, x_test_temMed)
