@@ -11,10 +11,8 @@ from sklearn.ensemble import AdaBoostClassifier
 from sklearn.tree import DecisionTreeClassifier
 
 from sklearn.model_selection import GridSearchCV
-import neurokit as nk
 from sklearn.externals import joblib
 import pyhrv as hr
-from biosppy.signals import tools
 
 
 def read_from_file(X_train_file, y_train_file, X_predict_file, is_testing = True):
@@ -102,11 +100,9 @@ def feature_extraction(X, is_test = False):
         hrv_data = hrv_data + list(hr.time_domain.nni_differences_parameters(rpeaks=rpeaks_location))
         hrv_data = hrv_data + list(hr.time_domain.hr_parameters(rpeaks=rpeaks_location))
         hrv_data = hrv_data + [hr.time_domain.sdnn(rpeaks=rpeaks_location)[0]]
-        features = np.append(template_median, [rpeaks_min, rpeaks_max, rpeaks_mean, rpeaks_var, rr_min, rr_max, rr_var])
+        features = np.append(template_mean, [rpeaks_min, rpeaks_max, rpeaks_mean, rpeaks_var, rr_min, rr_max, rr_var])
         # features = np.append(features,  hrv_data)
-        # add tf
-        tf_feature = tools.analytic_signal(signal=signal_processed[1], N=2000)[0]
-        features = np.concatenate((features, hrv_data,tf_feature), axis = 0).ravel()
+        features = np.concatenate((features, hrv_data), axis = 0).ravel()
         # print(features)
         # add the new point into  all datapoints
         X_new.append(features)
@@ -142,7 +138,7 @@ def standarlization(train_x, test_x):
 
 def svmClassifier(train_x, train_y, test_x):
     train_y = train_y.ravel()
-    classifier = SVC(class_weight='balanced', gamma=0.00005, C=30)  # c the penalty term for misclassification
+    classifier = SVC(class_weight='balanced', gamma=0.001, C=20)  # c the penalty term for misclassification
     # make balanced_accuracy_scorer
     score_func = make_scorer(f1_score, average='micro') # additional param for f1_score
     # cross validation
@@ -155,7 +151,7 @@ def svmClassifier(train_x, train_y, test_x):
 
 
 def grid_search(train_x, train_y, test_x):
-    parameters = {'C': [0.5, 1, 5, 10], 'gamma': [0.005, 0.01, 0.02, 0.05, 0.1]}
+    parameters = {'C': [ 10, 20, 25, 30], 'gamma': [0.001, 0.005, 0.01]}
     svcClassifier = SVC(kernel='rbf', class_weight='balanced')
     score_func = make_scorer(f1_score, average='micro')
     gs = GridSearchCV(svcClassifier, parameters, cv=5, scoring=score_func)
@@ -169,7 +165,7 @@ def grid_search(train_x, train_y, test_x):
 
 def adaBoostClassifier(train_x, train_y, test_x):
     train_y = train_y.ravel()
-    classifier = AdaBoostClassifier(base_estimator=DecisionTreeClassifier(max_depth=3, class_weight='balanced'), n_estimators=50, learning_rate=1)
+    classifier = AdaBoostClassifier(base_estimator=DecisionTreeClassifier(max_depth=None), n_estimators=60, learning_rate=0.8)
     # make balanced_accuracy_scorer
     score_func = make_scorer(f1_score, average='micro')  # additional param for f1_score
     # cross validation
@@ -184,7 +180,6 @@ def adaBoostClassifier(train_x, train_y, test_x):
 if __name__ == '__main__':
     is_start = False
     is_testing = False
-
     # read data from files
     if is_start:
         all_data = read_from_file("X_train.csv", "y_train.csv", "X_test.csv", is_testing)
