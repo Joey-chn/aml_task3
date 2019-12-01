@@ -2,24 +2,19 @@ import biosppy.signals.ecg as ecg
 import numpy as np
 import pandas as pd
 
-# from sklearn.feature_selection import SelectKBest, f_classif
 from sklearn.preprocessing import StandardScaler
-from imblearn.over_sampling import RandomOverSampler
 from sklearn.svm import SVC
 from sklearn.model_selection import cross_val_score
-# from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import balanced_accuracy_score, make_scorer
 from sklearn.metrics import f1_score
-# from neuralNet import neurNet_classifier
 from sklearn.ensemble import AdaBoostClassifier
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.impute import SimpleImputer
-from pyhrv import hrv
-import pyhrv.time_domain as td
+
 from sklearn.model_selection import GridSearchCV
 import neurokit as nk
 from sklearn.externals import joblib
-
+import pyhrv as hr
+from biosppy.signals import tools
 
 
 def read_from_file(X_train_file, y_train_file, X_predict_file, is_testing = True):
@@ -28,10 +23,11 @@ def read_from_file(X_train_file, y_train_file, X_predict_file, is_testing = True
     if is_testing:
         # read from files
         x_train = pd.read_csv(X_train_file, index_col='id', nrows = 30).to_numpy()
+        x_predict = pd.read_csv(X_predict_file, nrows = 30).to_numpy()
     else:
         x_train = pd.read_csv(X_train_file, index_col='id').to_numpy()
         y_train = pd.read_csv(y_train_file, index_col='id').to_numpy()
-        x_predict = pd.read_csv(X_predict_file, nrows = 30).to_numpy()
+        x_predict = pd.read_csv(X_predict_file).to_numpy()
     return x_train, y_train, x_predict
 
 
@@ -41,11 +37,17 @@ def feature_extraction(X, is_test = False):
     X_new = []
     count = 0
     for row in X:
-        count += 1
-        print(count)
-        if not is_test and count in [628, 629, 3501, 3721, 4702]:
-            continue
+        # print(count)
         row = row[np.logical_not(np.isnan(row))]
+        count += 1
+        # for train dataset: double the length those signals those are too short
+        # if not is_test and count in [628, 629, 3501, 3721, 4702]:
+        #     row = np.concatenate((row, row), axis = 1)
+        #
+        # # for test dataset
+        # if is_test and count in [1280]:
+        #     row = np.concatenate((row, row), axis=1)
+
         # extract all heartbeats templates
         signal_processed = ecg.ecg(signal=row, sampling_rate=300, show=False)
         templates = signal_processed[4]
@@ -55,14 +57,16 @@ def feature_extraction(X, is_test = False):
         # take the minimum R peaks
         rpeaks_location = signal_processed[2]
         rpeaks_location = ecg.correct_rpeaks(signal = row, rpeaks = rpeaks_location, sampling_rate=300)
-        features_raw = nk.ecg_preprocess(ecg=row, sampling_rate=300)
+        rpeaks_location = np.asarray(rpeaks_location).ravel()
+        # features_raw = nk.ecg_process(ecg=row, sampling_rate=300)
         # Q-waves
-        Q_idx = features_raw['ECG']['Q_Waves']
+        # Q_idx = features_raw['ECG']['Q_Waves']
         # T_idx = features_raw['ECG']['T_Waves']
-        Q_wave = row[Q_idx]
+        # Q_wave = row[Q_idx]
         # T_wave = row[T_idx]
-        Q_min = min(Q_wave)
-        Q_max = max(Q_wave)
+        # Q_min = min(Q_wave)
+        # Q_max = max(Q_wave)
+
         # if len(T_wave > 0):
         #     T_min = min(T_wave)
         #     T_max = max(T_wave)
@@ -70,7 +74,7 @@ def feature_extraction(X, is_test = False):
         # else:
         #     T_min, T_max, T_var = 0, 0, 0
 
-        Q_var = np.var(Q_wave)
+        # Q_var = np.var(Q_wave)
         # R-peaks
         rpeaks = row[rpeaks_location]
         rpeaks_min = min(rpeaks)
@@ -93,9 +97,17 @@ def feature_extraction(X, is_test = False):
         rr_min = np.min(rr_interval)
         rr_max = np.max(rr_interval)
         # add hrv into the feature
-        # hrv_val = caculate_hrv(row, rpeaks)
-        features = np.append(template_median, [rpeaks_min, rpeaks_max, rpeaks_mean, rpeaks_var, rr_min, rr_max, rr_var, Q_min, Q_max,  Q_var])
-        # features = np.concatenate((template_mean, features), axis = 0)
+        hrv_data = list(hr.nonlinear.poincare(rpeaks=rpeaks_location, show=False)[1:])
+        hrv_data = hrv_data + list(hr.time_domain.nni_parameters(rpeaks=rpeaks_location))
+        hrv_data = hrv_data + list(hr.time_domain.nni_differences_parameters(rpeaks=rpeaks_location))
+        hrv_data = hrv_data + list(hr.time_domain.hr_parameters(rpeaks=rpeaks_location))
+        hrv_data = hrv_data + [hr.time_domain.sdnn(rpeaks=rpeaks_location)[0]]
+        features = np.append(template_median, [rpeaks_min, rpeaks_max, rpeaks_mean, rpeaks_var, rr_min, rr_max, rr_var])
+        # features = np.append(features,  hrv_data)
+        # add tf
+        tf_feature = tools.analytic_signal(signal=signal_processed[1], N=2000)[0]
+        features = np.concatenate((features, hrv_data,tf_feature), axis = 0).ravel()
+        # print(features)
         # add the new point into  all datapoints
         X_new.append(features)
     X_new = np.array(X_new)
@@ -130,7 +142,7 @@ def standarlization(train_x, test_x):
 
 def svmClassifier(train_x, train_y, test_x):
     train_y = train_y.ravel()
-    classifier = SVC(class_weight='balanced', gamma=0.02, C=10)  # c the penalty term for misclassification
+    classifier = SVC(class_weight='balanced', gamma=0.00005, C=30)  # c the penalty term for misclassification
     # make balanced_accuracy_scorer
     score_func = make_scorer(f1_score, average='micro') # additional param for f1_score
     # cross validation
@@ -170,16 +182,13 @@ def adaBoostClassifier(train_x, train_y, test_x):
 
 
 if __name__ == '__main__':
-    is_start = True
+    is_start = False
     is_testing = False
+
     # read data from files
     if is_start:
         all_data = read_from_file("X_train.csv", "y_train.csv", "X_test.csv", is_testing)
         y_train = all_data[1]
-        outlier = [628, 629, 3501, 3721, 4702]
-        outlier_inv = outlier[::-1]
-        for i in outlier_inv:
-            y_train = np.delete(y_train, i) # empty heartrate
         x_train_raw = all_data[0]
         x_test_raw = all_data[2]
 
@@ -209,5 +218,3 @@ if __name__ == '__main__':
     # y_predict = adaBoostClassifier(x_train_std, y_train, x_test_std)
     # grid search
     result_to_csv(y_predict, 'sample.csv')
-
-
