@@ -138,7 +138,7 @@ def standarlization(train_x, test_x):
 
 def svmClassifier(train_x, train_y, test_x):
     train_y = train_y.ravel()
-    classifier = SVC(class_weight='balanced', gamma=0.001, C=20)  # c the penalty term for misclassification
+    classifier = SVC(class_weight='balanced', gamma=0.005, C=20)  # c the penalty term for misclassification
     # make balanced_accuracy_scorer
     score_func = make_scorer(f1_score, average='micro') # additional param for f1_score
     # cross validation
@@ -178,7 +178,7 @@ def adaBoostClassifier(train_x, train_y, test_x):
 
 
 if __name__ == '__main__':
-    is_start = False
+    is_start = True
     is_testing = False
     # read data from files
     if is_start:
